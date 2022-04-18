@@ -12,12 +12,11 @@ class User {
    */
 
   static async register({ username, password, first_name, last_name, phone }) {
-    const timestamp = new Date()
     const result = await db.query(
-      `INSERT INTO users (username, password, first_name, last_name, phone, join_at)
-         VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO users (username, password, first_name, last_name, phone, join_at, last_login_at)
+         VALUES ($1, $2, $3, $4, $5, now(), current_timestamp)
          RETURNING username, password, first_name, last_name, phone`,
-      [username, password, first_name, last_name, phone, timestamp]);
+      [username, password, first_name, last_name, phone]);
 
     return result.rows[0];
   }
@@ -40,13 +39,11 @@ class User {
 
   static async updateLoginTimestamp(username) {
 
-    const timestamp = new Date()
-
     await db.query(
       `UPDATE users
-        SET last_login_at=$1
-        WHERE username=$2`,
-      [timestamp, username]);
+        SET last_login_at= current_timestamp
+        WHERE username=$1`,
+      [username]);
   }
 
   /** All: basic info on all users:
@@ -91,13 +88,34 @@ class User {
 */
 
   static async messagesFrom(username) {
-
     const result = await db.query(
-      `SELECT id, to_username, body, sent_at, read_at
-        FROM messages
-        WHERE from_username=$1`, [username]);
+      `SELECT m.id,
+              m.to_username,
+              m.body,
+              m.sent_at,
+              m.read_at,
+              u.username,
+              u.first_name,
+              u.last_name,
+              u.phone
+        FROM messages AS m
+              LEFT OUTER JOIN users AS u ON m.to_username = u.username
+        WHERE m.from_username = $1`, [username]);
 
-    return result.rows;
+        const msgs = result.rows.map(m => {
+          return {
+            id: m.id,
+            body: m.body,
+            sent_at: m.sent_at,
+            read_at: m.read_at,
+            to_user: {
+              username: m.username,
+              first_name: m.first_name,
+              last_name: m.last_name,
+              phone: m.phone,
+            }
+          }});
+        return msgs;
   }
 
   /** Return messages to this user.
@@ -111,13 +129,35 @@ class User {
   static async messagesTo(username) {
 
     const result = await db.query(
-      `SELECT id, from_username, body, sent_at, read_at
-        FROM messages
-        WHERE to_username = $1`, [username]);
+      `SELECT m.id,
+              m.from_username,
+              m.body,
+              m.sent_at,
+              m.read_at,
+              u.username,
+              u.first_name,
+              u.last_name,
+              u.phone
+        FROM messages AS m
+              LEFT OUTER JOIN users AS u ON m.from_username = u.username
+        WHERE m.to_username = $1`, [username]);
 
-    return result.rows;
+    const msgs = result.rows.map(m => {
+      return {
+        id: m.id,
+        body: m.body,
+        sent_at: m.sent_at,
+        read_at: m.read_at,
+        from_user: {
+          username: m.username,
+          first_name: m.first_name,
+          last_name: m.last_name,
+          phone: m.phone,
+        }
+      }});
+    return msgs;
   }
-}
+};
 
 
 module.exports = User;
