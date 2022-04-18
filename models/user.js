@@ -1,7 +1,9 @@
 "use strict";
 
 const db = require("../db");
-const { NotFoundError } = require("../expressError");
+const bcrypt = require("bcrypt");
+const { BCRYPT_WORK_FACTOR } = require("../config");
+const { NotFoundError, BadRequestError, UnauthorizedError } = require("../expressError");
 
 /** User of the site. */
 
@@ -12,11 +14,16 @@ class User {
    */
 
   static async register({ username, password, first_name, last_name, phone }) {
+    const hashedPw = await bcrypt.hash(password, BCRYPT_WORK_FACTOR);
     const result = await db.query(
       `INSERT INTO users (username, password, first_name, last_name, phone, join_at, last_login_at)
          VALUES ($1, $2, $3, $4, $5, now(), current_timestamp)
          RETURNING username, password, first_name, last_name, phone`,
-      [username, password, first_name, last_name, phone]);
+      [username, hashedPw, first_name, last_name, phone]);
+
+    const user = result.rows[0];
+
+    if (!user) throw new BadRequestError("Invald input.");
 
     return result.rows[0];
   }
@@ -24,15 +31,19 @@ class User {
   /** Authenticate: is username/password valid? Returns boolean. */
 
   static async authenticate(username, password) {
-
-    const result = await db.query(
-      `SELECT password
+    try {
+      const result = await db.query(
+        `SELECT password
          FROM users
          WHERE username=$1`,
-      [username]);
-    const user = result.rows[0];
+        [username]);
+      const dbPassword = result.rows[0].password;
+      return bcrypt.compare(password, dbPassword);
+    }
+    catch (err) {
+      throw new UnauthorizedError("Username not found.");
+    }
 
-    return password === user.password;
   }
 
   /** Update last_login_at for user */
@@ -102,20 +113,21 @@ class User {
               LEFT OUTER JOIN users AS u ON m.to_username = u.username
         WHERE m.from_username = $1`, [username]);
 
-        const msgs = result.rows.map(m => {
-          return {
-            id: m.id,
-            body: m.body,
-            sent_at: m.sent_at,
-            read_at: m.read_at,
-            to_user: {
-              username: m.username,
-              first_name: m.first_name,
-              last_name: m.last_name,
-              phone: m.phone,
-            }
-          }});
-        return msgs;
+    const msgs = result.rows.map(m => {
+      return {
+        id: m.id,
+        body: m.body,
+        sent_at: m.sent_at,
+        read_at: m.read_at,
+        to_user: {
+          username: m.username,
+          first_name: m.first_name,
+          last_name: m.last_name,
+          phone: m.phone,
+        }
+      };
+    });
+    return msgs;
   }
 
   /** Return messages to this user.
@@ -154,7 +166,8 @@ class User {
           last_name: m.last_name,
           phone: m.phone,
         }
-      }});
+      };
+    });
     return msgs;
   }
 };
