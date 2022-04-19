@@ -38,7 +38,7 @@ class User {
          WHERE username=$1`,
         [username]);
       const dbPassword = result.rows[0].password;
-      return bcrypt.compare(password, dbPassword);
+      return await bcrypt.compare(password, dbPassword);
     }
     catch (err) {
       throw new UnauthorizedError("Username not found.");
